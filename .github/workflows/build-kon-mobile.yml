@@ -1,0 +1,81 @@
+name: Build K-ON iOS & Android
+
+on:
+  workflow_dispatch:
+
+jobs:
+  # ==========================================
+  # 任务 1：编译 iOS 定制版 (.ipa)
+  # ==========================================
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - name: 1. 拉取 v1.20.4 源码（与 Switch 版完全同源）
+        uses: actions/checkout@v4
+        with:
+          ref: v1.20.4
+          submodules: recursive
+
+      - name: 2. 写入《轻音少女》默认联机配置
+        run: |
+          sed -i '' 's/"socom.cc"/"psp.azusa.online"/g' Core/Config.cpp || true
+          sed -i '' 's/bEnableWlan, false/bEnableWlan, true/g' Core/Config.cpp || true
+          sed -i '' 's/bEnableAdhocServerRelay, false/bEnableAdhocServerRelay, true/g' Core/Config.cpp || true
+
+      - name: 3. 安装 iOS 打包依赖并执行编译
+        run: |
+          brew install ldid dpkg pillow
+          mkdir -p build-ios/PPSSPP.app
+          echo "1.20.4" > build-ios/PPSSPP.app/Version.txt
+          ./b-ios.sh
+
+      - name: 4. 上传 iOS 安装包 (.ipa)
+        uses: actions/upload-artifact@v4
+        with:
+          name: KON-iOS-IPA
+          path: |
+            build*/**/*.ipa
+            build*/PPSSPP*.ipa
+
+  # ==========================================
+  # 任务 2：编译 Android 定制版 (.apk)
+  # ==========================================
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 1. 拉取 v1.20.4 源码（与 Switch 版完全同源）
+        uses: actions/checkout@v4
+        with:
+          ref: v1.20.4
+          submodules: recursive
+
+      - name: 2. 安装 Android NDK 与 Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r25c
+
+      - name: 3. 写入《轻音少女》默认联机配置
+        run: |
+          sed -i 's/"socom.cc"/"psp.azusa.online"/g' Core/Config.cpp || true
+          sed -i 's/bEnableWlan, false/bEnableWlan, true/g' Core/Config.cpp || true
+          sed -i 's/bEnableAdhocServerRelay, false/bEnableAdhocServerRelay, true/g' Core/Config.cpp || true
+
+      - name: 4. 编译 Android APK
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          NDK: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: 5. 上传 Android 安装包 (.apk)
+        uses: actions/upload-artifact@v4
+        with:
+          name: KON-Android-APK
+          path: android/app/build/outputs/apk/debug/*.apk
